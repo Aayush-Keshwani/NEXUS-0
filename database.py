@@ -1,0 +1,417 @@
+"""
+Persistent project memory: Firebase Firestore + ADK tool wrappers (memory_tools / memory_tools_phase3).
+"""
+
+import os
+from datetime import datetime
+from dotenv import load_dotenv
+import firebase_admin
+from firebase_admin import credentials, firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
+
+load_dotenv()
+
+# Firebase init (once per process)
+cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+# If the env var is set but the file isn't in the container, remove it from env
+# to prevent GCP libraries (like Firestore) from crashing.
+if cred_path and not os.path.exists(cred_path):
+    del os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+    cred_path = None
+
+class MockFirestoreClient:
+    def __init__(self):
+        self.mock_db = {}
+    def collection(self, name):
+        return self
+    def document(self, name=None):
+        return self
+    def set(self, data):
+        return True
+    def where(self, *args, **kwargs):
+        return self
+    def stream(self):
+        return []
+    def order_by(self, *args, **kwargs):
+        return self
+    def limit(self, *args, **kwargs):
+        return self
+
+if not firebase_admin._apps:
+    try:
+        if cred_path:
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred)
+        else:
+            firebase_admin.initialize_app()
+        db = firestore.client()
+    except Exception as e:
+        print(f"WARNING: [MOCK MODE] Firebase init failed: {e}. Switching to Mock Database.")
+        db = MockFirestoreClient()
+else:
+    try:
+        db = firestore.client()
+    except:
+        db = MockFirestoreClient()
+
+
+def save_project_context(project_key: str, category: str, value: str, notes: str = "") -> str:
+    """
+    Save data to Firestore (append-only style - keeps history)
+    Example categories: "requirements", "research", "deadline", "tasks"
+    """
+    try:
+        timestamp = datetime.now().isoformat()
+        doc_ref = db.collection("project_memory").document()
+        
+        doc_ref.set({
+            "project_key": project_key,
+            "category": category,
+            "value": value,
+            "notes": notes,
+            "timestamp": timestamp
+        })
+        
+        success_msg = f"💾 SAVED to Firestore → [{category}] {project_key}"
+        print(success_msg)
+        return success_msg
+    except Exception as e:
+        error_msg = f"❌ Save Error: {str(e)}"
+        print(error_msg)
+        return error_msg
+
+
+def retrieve_context(project_key: str, category: str = None) -> str:
+    """
+    Retrieve memory from Firestore.
+    If category is given → only that category.
+    Otherwise → all categories for the project.
+    """
+    try:
+        memory_query = db.collection("project_memory").where(
+            filter=FieldFilter("project_key", "==", project_key)
+        )
+        if category:
+            memory_query = memory_query.where(filter=FieldFilter("category", "==", category))
+
+        memory_docs = list(memory_query.stream())
+        memory_docs.sort(
+            key=lambda doc: (doc.to_dict() or {}).get("timestamp") or "",
+            reverse=True,
+        )
+        memory_entries = memory_docs
+        if not memory_entries:
+            return f"No memory found for project: {project_key}"
+        
+        output = f"📖 FIRESTORE MEMORY FOR: {project_key}\n"
+        output += "=" * 60 + "\n"
+        
+        for memory_doc in memory_entries:
+            data = memory_doc.to_dict() or {}
+            ts = (data.get("timestamp") or "")[:19]
+            cat = (data.get("category") or "").upper()
+            val = data.get("value", "")
+            notes = data.get("notes", "")
+            
+            output += f"[{ts}] {cat}: {val}\n"
+            if notes:
+                output += f"   Notes: {notes}\n"
+            output += "-" * 50 + "\n"
+        
+        print(output)
+        return output
+    except Exception as e:
+        return f"❌ Retrieve Error: {str(e)}"
+
+
+def log_agent_action(agent_name: str, action: str, details: str):
+    """Log what agents do (for debugging)"""
+    try:
+        timestamp = datetime.now().isoformat()
+        db.collection("action_logs").document().set({
+            "agent_name": agent_name,
+            "action": action,
+            "details": details,
+            "timestamp": timestamp
+        })
+        print(f"📝 Logged: {agent_name} - {action}")
+    except:
+        pass
+
+
+def log_run_history(
+    summary: str,
+    prompt: str = "",
+    project_key: str = "",
+    result_snapshot: dict | None = None,
+):
+    """Log full pipeline run to Firestore run_history collection."""
+    try:
+        timestamp = datetime.now().isoformat()
+        data: dict = {
+            "timestamp": timestamp,
+            "prompt": prompt,
+            "summary": summary,
+            "project_key": project_key,
+        }
+        if result_snapshot:
+            data["result_snapshot"] = result_snapshot
+        db.collection("run_history").document().set(data)
+        print(f"📊 Run history logged")
+    except Exception as e:
+        print(f"⚠️ log_run_history error: {e}")
+
+
+def get_run_history(limit: int = 30) -> list:
+    """Return the last `limit` pipeline runs from Firestore, newest first."""
+    try:
+        try:
+            from google.cloud.firestore_v1 import Query as FSQuery
+            docs = (
+                db.collection("run_history")
+                .order_by("timestamp", direction=FSQuery.DESCENDING)
+                .limit(limit)
+                .stream()
+            )
+        except Exception:
+            # Fallback: stream all and sort in Python (works for MockClient too)
+            all_docs = list(db.collection("run_history").stream())
+            all_docs.sort(
+                key=lambda d: (d.to_dict() or {}).get("timestamp") or "",
+                reverse=True,
+            )
+            docs = all_docs[:limit]
+
+        runs = []
+        for doc in docs:
+            data = doc.to_dict() or {}
+            snapshot = data.get("result_snapshot") or {
+                "status": "success",
+                "outcome": {"summary": data.get("summary", "")},
+            }
+            runs.append({
+                "id": doc.id,
+                "projectKey": data.get("project_key") or data.get("prompt", "")[:40],
+                "timestamp": data.get("timestamp", ""),
+                "body": snapshot,
+            })
+        return runs
+    except Exception as e:
+        print(f"⚠️ get_run_history error: {e}")
+        return []
+
+
+def run_test():
+    print("\n🧪 Running Firebase Memory Test...\n")
+    project = "verilog_alu_demo"
+    
+    save_project_context(project, "requirements", "Design 16-bit RISC processor with ALU in Verilog", "Must be pipelined")
+    save_project_context(project, "deadline", "2026-04-30", "Final project submission")
+    save_project_context(project, "research", "https://arxiv.org/pdf/2305.12345.pdf", "Good RISC-V ALU reference")
+    
+    print("\nRetrieving full memory:")
+    retrieve_context(project)
+    
+    print("\nRetrieving only deadline:")
+    retrieve_context(project, "deadline")
+    
+    log_agent_action("Tech_Lead", "saved_requirements", "User wants pipelined design")
+    log_run_history("Test run completed successfully", "Design 16-bit ALU")
+    
+    print("\n✅ All tests passed! Check Firebase console to see the documents.")
+
+
+if __name__ == "__main__":
+    run_test()
+
+# ADK tool wrappers (plain functions → FunctionTool in Agent)
+
+def save_project_context_tool(
+    project_key: str, 
+    category: str, 
+    value: str, 
+    notes: str = ""
+) -> str:
+    """
+    Save project data to Firebase Firestore.
+    Use this tool when you want the team to remember requirements, research, deadlines, etc.
+    """
+    return save_project_context(project_key, category, value, notes)
+
+
+def retrieve_context_tool(
+    project_key: str, 
+    category: str = None
+) -> str:
+    """
+    Retrieve memory from Firebase Firestore.
+    If category is provided, returns only that category. 
+    Otherwise returns all memory for the project.
+    """
+    return retrieve_context(project_key, category)
+
+
+def log_agent_action_tool(
+    agent_name: str, 
+    action: str, 
+    details: str
+) -> str:
+    """
+    Log agent actions for debugging and tracking.
+    """
+    log_agent_action(agent_name, action, details)
+    return f"✅ Action logged: {agent_name} - {action}"
+
+
+def log_run_history_tool(
+    summary: str,
+    prompt: str = "",
+    project_key: str = "",
+) -> str:
+    """
+    Log the full pipeline run (useful for Member 4 backend).
+    """
+    log_run_history(summary, prompt, project_key=project_key)
+    return "✅ Run history saved to Firestore"
+
+
+memory_tools = [
+    save_project_context_tool,
+    retrieve_context_tool,
+    log_agent_action_tool,
+    log_run_history_tool
+]
+
+
+def list_all_projects() -> str:
+    """List all unique project_keys in memory (useful for Tech Lead)"""
+    try:
+        docs = db.collection("project_memory").stream()
+        projects = set()
+        for doc in docs:
+            data = doc.to_dict()
+            if "project_key" in data:
+                projects.add(data["project_key"])
+        
+        if not projects:
+            return "No projects found in memory yet."
+        
+        output = "📋 AVAILABLE PROJECTS IN MEMORY:\n"
+        output += "=" * 50 + "\n"
+        for p in sorted(projects):
+            output += f"• {p}\n"
+        return output
+    except Exception as e:
+        return f"❌ Error listing projects: {str(e)}"
+
+
+def clear_project_memory(project_key: str, category: str = None) -> str:
+    """Delete memory for a specific project or category"""
+    try:
+        query = db.collection("project_memory").where(
+            filter=FieldFilter("project_key", "==", project_key)
+        )
+        if category:
+            query = query.where(filter=FieldFilter("category", "==", category))
+
+        docs = query.stream()
+        deleted_count = 0
+        for doc in docs:
+            doc.reference.delete()
+            deleted_count += 1
+        
+        return f"🗑️ Deleted {deleted_count} documents for project: {project_key}"
+    except Exception as e:
+        return f"❌ Clear Error: {str(e)}"
+
+
+def get_memory_summary(project_key: str) -> str:
+    """Get a clean summary of all categories for a project"""
+    try:
+        q = db.collection("project_memory").where(
+            filter=FieldFilter("project_key", "==", project_key)
+        )
+        snapshots = list(q.stream())
+        snapshots.sort(
+            key=lambda d: (d.to_dict() or {}).get("timestamp") or "",
+            reverse=True,
+        )
+        summary = {}
+        for doc in snapshots:
+            data = doc.to_dict() or {}
+            cat = data.get("category")
+            if not cat or cat in summary:
+                continue
+            summary[cat] = data.get("value", "")
+        
+        output = f"📊 MEMORY SUMMARY FOR: {project_key}\n"
+        output += "=" * 50 + "\n"
+        for cat, val in summary.items():
+            output += f"• {cat.upper()}: {val[:120]}{'...' if len(val) > 120 else ''}\n"
+        return output
+    except Exception as e:
+        return f"❌ Summary Error: {str(e)}"
+
+
+
+def safe_save_project_context(project_key: str, category: str, value: str, notes: str = "") -> str:
+    """Safe version with retry (recommended for agents)"""
+    for attempt in range(3):
+        try:
+            return save_project_context(project_key, category, value, notes)
+        except Exception as e:
+            if attempt == 2:
+                return f"❌ Failed after 3 attempts: {str(e)}"
+            import time
+            time.sleep(1)
+
+
+memory_tools_phase3 = [
+    save_project_context_tool,
+    retrieve_context_tool,
+    log_agent_action_tool,
+    log_run_history_tool,
+    list_all_projects,
+    clear_project_memory,
+    get_memory_summary
+]
+
+# --------------------------------------------------
+# PROJECT REGISTRY
+# --------------------------------------------------
+
+PROJECTS_FILE = "projects_registry.json"
+
+
+def load_project_registry():
+
+    import json
+    import os
+
+    if not os.path.exists(PROJECTS_FILE):
+        return []
+
+    with open(PROJECTS_FILE, "r") as registry_file:
+        return json.load(registry_file)
+
+
+def save_project_registry(project_key):
+
+    import json
+    import os
+
+    projects = []
+
+    if os.path.exists(PROJECTS_FILE):
+
+        with open(PROJECTS_FILE, "r") as registry_file:
+            projects = json.load(registry_file)
+
+    if project_key not in projects:
+
+        projects.append(project_key)
+
+        with open(PROJECTS_FILE, "w") as registry_file:
+            json.dump(projects, registry_file, indent=2)
+

@@ -8,11 +8,34 @@ from dotenv import load_dotenv
 from google.adk.agents import Agent
 
 from database import memory_tools_phase3
+from research_tool import search_arxiv, search_web_snippets
 
 load_dotenv()
 
 ADK_MODEL = os.getenv("ADK_MODEL", "gemini-2.5-flash")
 ADK_LITE = True
+
+
+# ----------------------------
+# Research Agent
+# ----------------------------
+
+research_agent = Agent(
+    name="research_agent",
+    model=ADK_MODEL,
+    description="Finds sources via web search (DuckDuckGo); optional arXiv for papers.",
+    instruction="""
+You are the Research Agent (sub-agent only).
+
+When given a technical topic:
+1. Call search_web_snippets first with a short keyword query.
+2. If academic preprints are needed, call search_arxiv.
+3. Cite URLs from tool output.
+
+Keep output concise bullet points only.
+""",
+    tools=[search_web_snippets, search_arxiv],
+)
 
 
 # ----------------------------
@@ -55,6 +78,17 @@ Dependencies:
 Risks:
 Estimated Time:
 
+If this is a refinement request:
+
+You MUST:
+
+- Identify what changed
+- Update only affected tasks
+- Keep existing tasks unchanged
+- Do NOT recreate everything
+
+Never generate a completely new plan from scratch during refinement.
+
 OUTPUT FORMAT RULE (MANDATORY):
 
 Every task MUST be printed using this structure:
@@ -69,11 +103,9 @@ Estimated Time:
 
 Never omit the "Assigned To" field.
 
-CONSTRAINTS:
-
-- Every task MUST have an assigned owner.
-- Do NOT create duplicate tasks.
-
 """,
     tools=memory_tools_phase3,
+    sub_agents=[
+        research_agent,
+    ],
 )

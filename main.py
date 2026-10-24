@@ -8,10 +8,12 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
+from database import get_run_history
 from mcp_bridge import mcp_http_asgi, mcp_http_lifespan
 
 import uvicorn
@@ -73,6 +75,16 @@ app.mount("/mcp", mcp_http_asgi)
 @app.get("/mcp")
 async def redirect_to_mcp():
     return RedirectResponse(url="/mcp/", status_code=307)
+
+
+@app.get("/api/run-history")
+async def api_run_history(limit: int = 30):
+    """Return the last N pipeline runs from Firestore for the Past Runs sidebar panel."""
+    try:
+        runs = get_run_history(limit=min(limit, 50))
+        return JSONResponse(content={"runs": runs})
+    except Exception as e:
+        return JSONResponse(content={"runs": [], "error": str(e)})
 
 
 _FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"

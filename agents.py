@@ -7,15 +7,11 @@ import os
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 
-from calendar_tool import (
-    create_calendar_block,
-    get_free_slots,
-    get_team_free_slots,
-    spread_task_dates,
-)
+from calendar_tool import create_calendar_block, get_free_slots, get_team_free_slots, spread_task_dates
 from database import memory_tools_phase3
 from notion_tool import create_kanban_card, list_kanban_cards
 from research_tool import search_arxiv, search_web_snippets
+from workspace_tool import prepare_project_workspace
 
 load_dotenv()
 
@@ -48,7 +44,6 @@ Keep output concise bullet points only.
 # ----------------------------
 # Scrum Master Agent
 # ----------------------------
-# Notion Kanban + Google Calendar Deep Work blocks.
 
 scrum_master_agent = Agent(
     name="scrum_master_agent",
@@ -68,8 +63,7 @@ When given a project and a **deadline** (plan end date) in the user message, you
 4. For **each** task **i** (1-based) in order, using date **D_i** from that list:
    a. Call **create_calendar_block** with `date=D_i`, this task’s title, `duration_hours=2`, `start_hour` from an available slot.
       If the assignee has a **work email** in the team roster, set **`invite_email`** to that address (event is created on the server’s calendar; **Google emails them a standard calendar invite** with the time). Do **not** set `calendar_email` to a teammate’s address unless you know that calendar is writable by the OAuth account; prefer **invite_email** for normal teammates.
-   b. Call **create_kanban_card** with **deadline=D_i** and `assignee_name` = the team member's name so the card lands in their personal Kanban board.
-
+   b. Call **create_kanban_card** with **deadline=D_i** and **assignee_name** = the team member's name so the card lands in their personal Kanban board.
 5. Card fields (every task):
    - title: short, action-oriented
    - status='To Do'
@@ -81,12 +75,16 @@ When given a project and a **deadline** (plan end date) in the user message, you
      • **Definition of Done**: Specific, measurable acceptance criteria.
      • **Architecture Context**: How this task fits into the broader system.
      • **Risks & Mitigation**: Potential blockers and how to avoid them.
+     Format bullets as lines starting with `* ` or `- ` so Notion shows real bullet lists; use **Bold Headers**:
+     for sub-headings inside bullets. Do NOT use one-line descriptions.
+   - sources: newline-separated list of **URLs and paper titles** from research_agent.
+     Ensure every card has the relevant URLs provided at the very bottom.
 
 6. Return a SHORT summary (2-3 sentences): how many cards created, how many calendar blocks booked, date range used.
+   Do NOT include any raw Notion or Calendar URLs in your summary — the UI displays those separately.
 
 Always create each **calendar block** before its matching **Notion** card.
 Use status 'To Do' for all new tasks.
-
 """,
     tools=[
         spread_task_dates,
@@ -96,6 +94,29 @@ Use status 'To Do' for all new tasks.
         create_kanban_card,
         list_kanban_cards,
     ],
+)
+
+
+# ----------------------------
+# Workspace Prep Agent (REAL)
+# ----------------------------
+
+workspace_prep_agent = Agent(
+    name="workspace_prep_agent",
+    model=ADK_MODEL,
+    description="Creates a real starter folder layout and README on disk.",
+    instruction="""
+You are the Workspace Preparation Agent.
+
+After planning is clear:
+
+1. Call prepare_project_workspace
+2. Use a filesystem-safe project name
+3. Return the path created
+
+Do not invent paths.
+""",
+    tools=[prepare_project_workspace],
 )
 
 
@@ -121,6 +142,7 @@ You MUST always:
 - Assign responsibility to a named team member.
 - Ensure every task has an owner.
 - Avoid duplicate task creation.
+- Use previous plan context when refining.
 
 TEAM ASSIGNMENT:
 
@@ -133,11 +155,11 @@ When generating tasks, include:
 
 Task Title  
 Assigned To  
-Description:
-Acceptance Criteria:
-Dependencies:
-Risks:
-Estimated Time:
+Description  
+Acceptance Criteria  
+Dependencies  
+Risks  
+Estimated Time  
 
 If this is a refinement request:
 
@@ -148,7 +170,12 @@ You MUST:
 - Keep existing tasks unchanged
 - Do NOT recreate everything
 
-Never generate a completely new plan from scratch during refinement.
+Workflow order:
+1. memory (check previous project state)
+2. research (gather technical intel)
+3. scrum (distribute events and Notion cards)
+4. workspace (MUST transfer_to_workspace_prep_agent to scaffold files)
+5. summary (final response to user)
 
 OUTPUT FORMAT RULE (MANDATORY):
 
@@ -163,11 +190,82 @@ Risks:
 Estimated Time:
 
 Never omit the "Assigned To" field.
+Never output tasks as plain bullet points.
 
+REFINEMENT DETECTION RULE:
+
+If the user's request modifies an existing project, you MUST:
+
+1. Compare the new request with stored project memory
+2. Identify exactly what changed
+3. Update only the affected tasks
+4. Keep unchanged tasks intact
+5. Clearly state which tasks were modified, added, or removed
+
+Never regenerate the entire plan unless explicitly requested.
+
+REFINEMENT REPORTING RULE (MANDATORY):
+
+If this request modifies an existing project, you MUST produce a refinement summary before listing tasks.
+
+Always display:
+
+Modified Tasks:
+- List tasks that changed
+
+Added Tasks:
+- List new tasks created
+
+Unchanged Tasks:
+- List tasks that remain the same
+
+Then provide the full updated task list.
+
+Never skip this classification step.
+
+REFINEMENT EXECUTION RULE:
+
+When the user selects refinement mode:
+
+1. You MUST retrieve the existing task list from memory.
+2. You MUST modify existing tasks when changes affect them.
+3. You MUST only create new tasks when functionality is completely new.
+4. You MUST keep unchanged tasks exactly as they are.
+5. You MUST output a single unified updated task list.
+
+Never generate a completely new plan from scratch during refinement.
+Always integrate changes into the existing workflow.
+
+FINAL SUMMARY RULE (MANDATORY):
+
+After ALL sub-agents have finished, output EXACTLY the following — nothing before, nothing after:
+
+<!-- SUMMARY_START -->
+**<Name> — <Role>**
+<2-3 lines: overall responsibility, key tasks, and date range. Use extremely concise, professional language. No bullet points.>
+
+**<Name> — <Role>**
+<2-3 lines: same format as above.>
+
+(repeat for every team member)
+
+---
+**Sources & Research References**
+<List all relevant URLs and paper titles gathered by the research_agent. Use a clean, numbered list.>
+<!-- SUMMARY_END -->
+
+CONSTRAINTS:
+- EXACTLY ONE paragraph per member.
+- Each paragraph MUST be between 2-3 lines.
+- End with a horizontal rule and a consolidated "Sources & Research References" section.
+- Start with <!-- SUMMARY_START --> and end with <!-- SUMMARY_END -->.
+- No intro, no outro.
 """,
     tools=memory_tools_phase3,
     sub_agents=[
         research_agent,
         scrum_master_agent,
+        workspace_prep_agent,
     ],
 )
+

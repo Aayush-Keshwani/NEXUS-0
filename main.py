@@ -78,19 +78,11 @@ async def redirect_to_mcp():
 _FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 
 
-@app.get("/", include_in_schema=False)
-async def index():
-    """Serve the web dashboard when `frontend/` exists, else redirect to /api."""
-    if _FRONTEND_DIR.is_dir():
-        return RedirectResponse(url="/frontend/", status_code=307)
-    return RedirectResponse(url="/api", status_code=307)
-
-
 if _FRONTEND_DIR.is_dir():
     app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
 else:
 
-    @app.get("/", include_in_schema=False)
+    @app.get("/")
     async def index_redirect():
         return RedirectResponse(url="/api", status_code=307)
 

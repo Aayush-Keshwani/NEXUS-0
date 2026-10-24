@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>R&D Autonomous System | Control</title>
+  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="bg-glows" aria-hidden="true">
+    <div class="glow glow-1"></div>
+    <div class="glow glow-2"></div>
+    <div class="grain-overlay"></div>
+  </div>
+  <!-- Lightweight overlay while pipeline/refine requests are in flight -->
+  <div id="agent-thinking-overlay" class="agent-thinking-overlay hidden" aria-hidden="true" role="presentation">
+    <div class="agent-thinking-card">
+      <div class="agent-thinking-orbit" aria-hidden="true">
+        <span class="agent-thinking-dot agent-thinking-dot--a"></span>
+        <span class="agent-thinking-dot agent-thinking-dot--b"></span>
+        <span class="agent-thinking-dot agent-thinking-dot--c"></span>
+      </div>
+      <p class="agent-thinking-title">Agents are thinking…</p>
+      <p class="agent-thinking-sub">Synthesizing your mission — grab a coffee, this bit loves drama ☕✨</p>
+    </div>
+  </div>
+
+  <div class="dashboard-layout" id="page-root">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand" style="justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div class="brand-hex">Σ</div>
+          <span class="brand-name">R&D System</span>
+        </div>
+        <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle Theme">☀️</button>
+      </div>
+      
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-tab="run-pipeline" title="System Control">
+          <span class="nav-label">Control</span>
+        </button>
+      </nav>
+
+      <!-- Past Runs History -->
+      <div class="past-runs-section">
+        <button class="past-runs-toggle" id="past-runs-toggle" aria-expanded="false">
+          <span class="past-runs-label">📂 Past Runs</span>
+          <span class="past-runs-chevron" id="past-runs-chevron">›</span>
+        </button>
+        <div class="past-runs-list hidden" id="past-runs-list">
+          <div class="past-runs-empty" id="past-runs-empty">No completed runs yet.</div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div id="ist-clock" class="sidebar-clock">--:--:-- IST</div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Top Header -->
+      <header class="main-header">
+        <div class="header-breadcrumb">
+          <span class="breadcrumb-root">Home</span>
+          <span class="breadcrumb-sep">/</span>
+          <span id="active-view-name">Control</span>
+        </div>
+        
+        <div class="header-title-wrap">
+          <h1 class="app-title">R&D Autonomous System</h1>
+          <div class="session-badge">
+            <span class="badge-label">Active Session:</span>
+            <input type="text" id="active-project-key" value="idle" readonly />
+          </div>
+        </div>
+      </header>
+
+      <!-- View Area -->
+      <div class="view-viewport">
+        
+        <!-- Command View -->
+        <section id="run-pipeline-view" class="view-layer active">
+          <div class="command-grid">
+            <!-- Config Column -->
+            <div class="glass-panel config-panel">
+              <div class="panel-header">
+                <h3>Sequence Configuration</h3>
+                <p>Define project scope and agent parameters</p>
+              </div>
+              
+              <form id="pipeline-form" class="command-form" novalidate>
+                <div class="form-group">
+                  <label class="form-label">Mission Description</label>
+                  <textarea id="description" name="description" class="form-input form-textarea" rows="5" placeholder="Describe the R&D goal..."></textarea>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">Completion Target</label>
+                    <input id="deadline" name="deadline" type="date" class="form-input" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Sequence ID</label>
+                    <input id="project-key" name="project_key" type="text" class="form-input" placeholder="project_key" />
+                  </div>
+                </div>
+
+                <!-- Team Configuration -->
+                <div class="team-config-section">
+                  <div class="team-toggle-row">
+                    <label class="form-label">Team Configuration</label>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="team-toggle" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+
+                  <div id="team-config-body" class="team-config-body hidden">
+                    <div class="form-group">
+                      <label class="form-label">Number of Teammates</label>
+                      <input id="num-teammates" type="number" class="form-input" min="1" max="10" value="2" />
+                    </div>
+                    <div id="team-members-container" class="team-members-container">
+                      <!-- Dynamically generated member rows -->
+                    </div>
+                    <button type="button" id="generate-member-rows-btn" class="generate-rows-btn">Generate Member Fields</button>
+                  </div>
+                </div>
+
+                <div id="form-status" class="status-msg"></div>
+
+                <button type="submit" class="launch-btn" id="submit-btn">
+                  <span class="btn-text">Initiate R&D Sequence</span>
+                  <div class="btn-shimmer"></div>
+                </button>
+                
+                <p id="pipeline-wait-note" class="wait-note hidden">Agents are building artifacts — larger scopes often take 5–10 minutes.</p>
+              </form>
+            </div>
+
+            <!-- Visualizer Column (Live Workflow) -->
+            <div class="glass-panel visualizer-panel">
+              <div class="workflow-stage" id="workflow-stage">
+                <header class="workflow-header">
+                  <div class="workflow-title">LIVE EXECUTION GRAPH</div>
+                  <div class="workflow-controls">
+                    <span class="status-badge" id="execution-status">IDLE</span>
+                  </div>
+                </header>
+
+                <div id="artifact-build-banner" class="artifact-build-banner hidden" role="status" aria-live="polite">
+                  <span class="artifact-build-banner__icon" aria-hidden="true">⚙️</span>
+                  <div class="artifact-build-banner__text">
+                    <strong>Building artifacts</strong>
+                    <span class="artifact-build-banner__sub">Notion pages and calendar blocks can take <strong>5–10 minutes</strong> on bigger projects — safe to leave this tab open.</span>
+                  </div>
+                </div>
+
+                <div class="workflow-graph-scroll">
+                  <div class="workflow-canvas">
+                  <!-- Layer 1: Inputs -->
+                  <div class="workflow-column">
+                    <div class="workflow-node" id="wf-receive">
+                      <div class="node-icon">📥</div>
+                      <div class="node-content">
+                        <span class="node-title">Receive Query</span>
+                        <span class="node-meta">Awaiting Input...</span>
+                      </div>
+                      <div class="node-status-icon"></div>
+                    </div>
+                    <div class="workflow-node" id="wf-parse">
+                      <div class="node-icon">🧠</div>
+                      <div class="node-content">
+                        <span class="node-title">Parse Intent</span>
+                        <span class="node-meta">NLP Engine</span>
+                      </div>
+                      <div class="node-status-icon"></div>
+                    </div>
+                  </div>
+
+                  <!-- Connectors SVG -->
+                  <svg class="workflow-svg">
+                    <path class="wf-link" id="link-1" d="" />
+                    <path class="wf-link" id="link-2" d="" />
+                    <path class="wf-link" id="link-3" d="" />
+                    <path class="wf-link" id="link-4" d="" />
+                    <path class="wf-link" id="link-5" d="" />
+                    <path class="wf-link" id="link-6" d="" />
+                  </svg>
+
+                  <!-- Layer 2: Core Processing -->
+                  <div class="workflow-column">
+                    <div class="workflow-node node-wide" id="wf-orchestrate">
+                      <div class="node-icon">🕸️</div>
+                      <div class="node-content">
+                        <span class="node-title">Agent Orchestration</span>
+                        <span class="node-meta" id="orchestrate-meta">Idle</span>
+                      </div>
+                      <div class="node-status-icon"></div>
+                    </div>
+                  </div>
+
+                  <!-- Layer 3: Agents -->
+                  <div class="workflow-column">
+                    <div class="workflow-node" id="wf-research">
+                      <div class="node-icon">🔍</div>
+                      <div class="node-content">
+                        <span class="node-title">Research Agent</span>
+                        <span class="node-meta">Data Scraper</span>
+                      </div>
+                      <div class="node-status-icon"></div>
+                    </div>
+                    <div class="workflow-node" id="wf-architect">
+                      <div class="node-icon">👔</div>
+                      <div class="node-content">
+                        <span class="node-title">Tech Lead</span>
+                        <span class="node-meta">Design Engine</span>
+                      </div>
+                      <div class="node-status-icon"></div>
+                    </div>
+                  </div>
+
+                  <!-- Layer 4: Finalization -->
+                  <div class="workflow-column">
+                    <div class="workflow-node" id="wf-synthesize">
+                      <div class="node-icon">✨</div>
+                      <div class="node-content">
+                        <span class="node-title">Synthesize</span>
+                        <span class="node-meta">Building Artifacts</span>
+                      </div>
+                      <div class="node-status-icon"></div>
+                    </div>
+                  </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Chat Input Area -->
+          <div class="chat-input-area">
+            <form id="chat-form" class="chat-form">
+              <input type="text" id="chat-input" class="chat-input" placeholder="Type a command to /refine the project..." autocomplete="off" />
+              <button type="submit" class="chat-submit-btn" aria-label="Send message">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              </button>
+            </form>
+          </div>
+
+          <!-- Results Overlay -->
+          <div id="results-panel" class="modal-overlay hidden">
+            <div class="glass-panel modal-card">
+              <div class="modal-top-bar">
+                <span id="modal-project-label" class="modal-project-label"></span>
+                <button class="modal-close" id="new-run-btn" aria-label="Close results">&times;</button>
+              </div>
+              <div id="results-banner" class="results-banner"></div>
+              <p class="results-spam-note" role="note">
+                📬 Calendar invites from Google can land in <strong>Spam</strong> or <strong>Promotions</strong> — peek there if teammates don’t see their invite.
+              </p>
+
+              <div class="modal-scroll-area">
+                <div class="modal-results-layout">
+                  <section class="outcome-section modal-summary-col">
+                    <h4 class="section-tag">Summary Report</h4>
+                    <div id="summary-text" class="summary-body"></div>
+                  </section>
+
+                  <div class="modal-links-row">
+                    <div id="notion-section" class="modal-link-column hidden">
+                      <h4 class="section-tag">Notion Hub</h4>
+                      <div class="link-grid" id="notion-link-cards"></div>
+                    </div>
+                    <div id="calendar-section" class="modal-link-column hidden">
+                      <h4 class="section-tag">Temporal Blocks</h4>
+                      <div class="link-grid" id="calendar-link-cards"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <section class="modal-refinement-section">
+                  <h4 class="section-tag">Direct Refinement</h4>
+                  <form id="modal-chat-form" class="modal-chat-form">
+                    <input type="text" id="modal-chat-input" class="modal-chat-input" placeholder="What should we refine in this project?" autocomplete="off" />
+                    <button type="submit" class="modal-refine-btn">Refine</button>
+                  </form>
+                </section>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Telemetry Footer -->
+      <footer class="telemetry-bar">
+        <div class="telemetry-header">
+          <div class="telemetry-title">
+            <span class="pulse-icon"></span>
+            LIVE AGENT TELEMETRY
+          </div>
+        </div>
+        <div class="telemetry-body" id="terminal-log">
+          <div class="log-entry">
+            <span class="log-time">--:--:--</span>
+            <span class="log-tag tag-sys">[SYSTEM]</span>
+            <span class="log-msg">Ready.</span>
+          </div>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <script>window.API_BASE = "";</script>
+  <script src="app.js?v=9"></script>
+</body>
+</html>

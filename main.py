@@ -1,6 +1,6 @@
 """
-Deep-Tech Sprint API - backend core.
-FastAPI + static UI mount + ops endpoints.
+Deep-Tech Sprint API - backend core + MCP surface.
+FastAPI + MCP (Streamable HTTP) + static UI mount + ops endpoints.
 """
 
 import os
@@ -9,14 +9,18 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
 from starlette.responses import RedirectResponse
+
+from mcp_bridge import mcp_http_asgi, mcp_http_lifespan
 
 import uvicorn
 
 app = FastAPI(
     title="Deep-Tech Sprint - Autonomous R&D System",
-    description="Autonomous R&D pipeline - FastAPI backend core.",
+    description="Autonomous R&D pipeline - FastAPI backend core + MCP tools.",
     version="0.1.0",
+    lifespan=mcp_http_lifespan,
 )
 
 _cors_origins = [
@@ -58,25 +62,27 @@ async def api_info():
         "docs": "/docs",
         "pipeline": "POST /trigger-pipeline",
         "health": "/health",
+        "mcp": "/mcp/",
     }
 
 
+# MCP over HTTP (Streamable HTTP) — mount before catch-all static files
+app.mount("/mcp", mcp_http_asgi)
+
+
+@app.get("/mcp")
+async def redirect_to_mcp():
+    return RedirectResponse(url="/mcp/", status_code=307)
+
+
 _FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
-
-
-@app.get("/", include_in_schema=False)
-async def index():
-    """Serve the web dashboard when `frontend/` exists, else redirect to /api."""
-    if _FRONTEND_DIR.is_dir():
-        return RedirectResponse(url="/frontend/", status_code=307)
-    return RedirectResponse(url="/api", status_code=307)
 
 
 if _FRONTEND_DIR.is_dir():
     app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
 else:
 
-    @app.get("/", include_in_schema=False)
+    @app.get("/")
     async def index_redirect():
         return RedirectResponse(url="/api", status_code=307)
 
@@ -89,4 +95,5 @@ if __name__ == "__main__":
     print(f"Docs: {_url}/docs")
     if _FRONTEND_DIR.is_dir():
         print(f"UI: {_url}/ (same origin as API)")
+    print(f"MCP: {_url}/mcp/")
     uvicorn.run(app, host=_host, port=_port)

@@ -76,14 +76,12 @@ class TeamMember(BaseModel):
     role: str = ""
     email: str = ""
 
-
 class TriggerRequest(BaseModel):
     prompt: str
     deadline: str = "2026-04-30"
     project_key: str = Field(default="project_demo", description="Firestore + session scope")
     num_teammates: int = 0
     team_members: list[TeamMember] | None = None
-
 
 class RefineRequest(BaseModel):
     project_key: str
@@ -170,10 +168,18 @@ def _extract_outcome(events: list[Any]) -> str:
 
 
 def _trim_to_summary(text: str) -> str:
-    """Return only the per-member summary block from the model output."""
+    """Return only the per-member summary block from the model output.
+
+    Strategy:
+    1. If the model used the <!-- SUMMARY_START / SUMMARY_END --> sentinels,
+       extract that slice and strip the tags.
+    2. Otherwise, deduplicate repeated paragraphs for the same member
+       (the model sometimes emits the same heading twice).
+    """
     if not text:
         return text
 
+    # --- Strategy 1: sentinel tags ---
     start_tag = "<!-- SUMMARY_START -->"
     end_tag = "<!-- SUMMARY_END -->"
     si = text.find(start_tag)
@@ -182,6 +188,9 @@ def _trim_to_summary(text: str) -> str:
         inner = text[si + len(start_tag): ei if ei != -1 else None].strip()
         return inner
 
+    # --- Strategy 2: deduplicate paragraphs by bold header (** Name **) ---
+    # Split on double-newline boundaries and keep only the first occurrence
+    # of each bold header pattern.
     header_re = re.compile(r"^\s*\*\*.+\*\*", re.MULTILINE)
     paragraphs = re.split(r"\n{2,}", text.strip())
     seen_headers: set[str] = set()
@@ -191,10 +200,24 @@ def _trim_to_summary(text: str) -> str:
         if m:
             key = m.group(0).strip().lower()
             if key in seen_headers:
-                continue
+                continue  # duplicate paragraph for same member — drop it
             seen_headers.add(key)
         kept.append(para)
     return "\n\n".join(kept)
+
+
+
+def _pipeline_created_notion_cards(events: list[Any]) -> bool:
+    """True if any model turn invoked create_kanban_card (Scrum → Notion)."""
+    for event in events:
+        content = getattr(event, "content", None)
+        if not content:
+            continue
+        for part in getattr(content, "parts", None) or []:
+            fc = getattr(part, "function_call", None)
+            if fc is not None and getattr(fc, "name", "") == "create_kanban_card":
+                return True
+    return False
 
 
 # Match htmlLink from API (www.google.com) and browser redirects (calendar.google.com).
@@ -261,6 +284,9 @@ def _notion_hub_page_url() -> str | None:
     return f"https://www.notion.so/{nid}"
 
 
+_NOTION_GUARD_MAX_NUDGES = 2
+
+
 def _log_event(event: Any) -> None:
     author = getattr(event, "author", "?")
     styles = {
@@ -311,19 +337,27 @@ async def _ensure_session(runner: InMemoryRunner, user_id: str, session_id: str)
 
 @app.get("/health")
 async def health():
-    """Liveness probe."""
+    """Cloud Run / load balancer probe."""
     return {"status": "ok"}
 
 
 @app.get("/api")
 async def api_info():
-    """JSON service info."""
+    """JSON service info (UI is served at / when frontend/ is present)."""
     return {
         "service": "Deep-Tech Sprint API",
         "docs": "/docs",
         "pipeline": "POST /trigger-pipeline",
         "health": "/health",
-        "mcp": "/mcp/",
+        "env": {
+            "ADK_LITE": "0 = default. 1 = leaner tool use; Scrum/Notion still required for project work with deadlines.",
+            "ADK_MODEL": "default gemini-2.5-flash; set in .env if you hit 429 or change backend.",
+        },
+        "example_body": {
+            "prompt": "Design a 16-bit RISC processor in Verilog with ALU",
+            "deadline": "2026-04-30",
+            "project_key": "verilog_alu_demo",
+        },
     }
 
 
@@ -395,12 +429,15 @@ async def trigger_pipeline(request: TriggerRequest):
 
     if notion_run:
         meta = {**meta, "notion_run_page_url": notion_run["run_page_url"]}
-        console.print(f"[dim]Notion run workspace: {notion_run['run_page_url']}[/dim]")
+        if notion_run.get("kanban_database_id"):
+            meta["notion_kanban_database_id"] = notion_run["kanban_database_id"]
+        console.print(
+            f"[dim]Notion run workspace: {notion_run['run_page_url']}[/dim]"
+        )
 
     # ── PERSIST TEAM CONFIG ──
     try:
         import json
-
         team_dict = [m.model_dump() for m in request.team_members] if request.team_members else []
         if team_dict:
             save_project_context(request.project_key, "team_config", json.dumps(team_dict))
@@ -443,12 +480,63 @@ async def trigger_pipeline(request: TriggerRequest):
                     events.append(event)
                     _log_event(event)
 
+                notion_guard_count = 0
+                while (
+                    notion_run
+                    and not _pipeline_created_notion_cards(events)
+                    and notion_guard_count < _NOTION_GUARD_MAX_NUDGES
+                ):
+                    notion_guard_count += 1
+                    console.print(
+                        "[yellow]Notion guard: no create_kanban_card yet — "
+                        f"nudging Tech Lead ({notion_guard_count}/{_NOTION_GUARD_MAX_NUDGES})[/yellow]"
+                    )
+                    nudge = (
+                        "System reminder (pipeline guard): A Notion run workspace is active for this "
+                        "request, but **create_kanban_card** was never called. You MUST "
+                        "**transfer_to_agent** with agent_name **scrum_master_agent** now. "
+                        "Scrum must call **create_kanban_card** at least twice (real tasks) using "
+                        f"deadline **{request.deadline}** and the user’s project scope. "
+                        "Do not reply with only documentation; update the board first, then summarize."
+                    )
+                    async for event in runner.run_async(
+                        user_id=user_id,
+                        session_id=session.id,
+                        new_message=types.UserContent(
+                            parts=[types.Part(text=nudge)]
+                        ),
+                    ):
+                        events.append(event)
+                        _log_event(event)
+
                 outcome_text = _trim_to_summary(_extract_outcome(events))
                 finished = datetime.now().isoformat()
 
                 console.print(Rule("[bold green]PIPELINE DONE[/bold green]", style="green"))
 
+                # log call moved below so it captures notion/calendar/workspace links
                 summary_for_log = outcome_text[:500] if outcome_text else "completed (no text outcome)"
+
+                cards_ok = _pipeline_created_notion_cards(events)
+                meta_out = {
+                    **meta,
+                    **(
+                        {
+                            "notion_kanban_cards_created": cards_ok,
+                            "notion_guard_nudges": guard_i,
+                        }
+                        if notion_run
+                        else {}
+                    ),
+                }
+                if notion_run and not cards_ok:
+                    meta_out = {
+                        **meta_out,
+                        "notion_guard_warning": (
+                            "Per-run Notion workspace was opened but no create_kanban_card ran "
+                            f"after {notion_guard_count} guard nudge(s). Check Scrum/Calendar tools and logs."
+                        ),
+                    }
 
                 body = {
                     "status": "success",
@@ -457,7 +545,7 @@ async def trigger_pipeline(request: TriggerRequest):
                         "summary": outcome_text,
                         "event_count": len(events),
                     },
-                    "meta": meta,
+                    "meta": meta_out,
                     "started_at": started,
                     "finished_at": finished,
                 }
@@ -465,11 +553,19 @@ async def trigger_pipeline(request: TriggerRequest):
                     body["notion"] = {
                         "run_page_url": notion_run["run_page_url"],
                         "run_page_id": notion_run["run_page_id"],
+                        "kanban_cards_created": cards_ok,
                     }
+                    if notion_run.get("kanban_database_id"):
+                        body["notion"]["kanban_database_id"] = notion_run[
+                            "kanban_database_id"
+                        ]
+                    _hub = _notion_hub_page_url()
+                    if _hub:
+                        body["notion"]["hub_page_url"] = _hub
                 _cal = _extract_calendar_event_links(events, outcome_text)
                 if _cal:
                     body["calendar_event_links"] = _cal
-
+                    
                 if workspace_download_url:
                     body["workspace_download_url"] = workspace_download_url
 
@@ -538,6 +634,18 @@ async def trigger_pipeline(request: TriggerRequest):
                         "or another Flash model in your region; confirm billing and Generative AI quota in GCP. "
                         "See https://google.github.io/adk-docs/agents/models/google-gemini/#error-code-429-resource_exhausted"
                     )
+                if notion_run:
+                    err_body["notion"] = {
+                        "run_page_url": notion_run["run_page_url"],
+                        "run_page_id": notion_run["run_page_id"],
+                    }
+                    if notion_run.get("kanban_database_id"):
+                        err_body["notion"]["kanban_database_id"] = notion_run[
+                            "kanban_database_id"
+                        ]
+                    _hub_e = _notion_hub_page_url()
+                    if _hub_e:
+                        err_body["notion"]["hub_page_url"] = _hub_e
                 return JSONResponse(status_code=200, content=err_body)
     finally:
         end_notion_run_workspace(notion_reset_token)
@@ -550,17 +658,18 @@ async def refine_project(request: RefineRequest):
     then running the Tech Lead agent with the new user instruction.
     """
     import json
-
+    
     project_key = request.project_key
     user_id = "api_user"
     session_id = f"refine_{project_key}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
     started = datetime.now().isoformat()
 
     console.print(Rule(f"[bold cyan]REFINEMENT START: {project_key}[/bold cyan]", style="cyan"))
-
+    
     # 1. Retrieve old team info and project summary
     context_info_str = ""
     try:
+        # Retrieve all memory for the project to get a full picture
         full_memory = retrieve_context(project_key)
         if "firestore memory" in full_memory.lower():
             context_info_str = f"\n\n--- EXISTING PROJECT CONTEXT ---\n{full_memory}\n-------------------------------\n"
@@ -584,7 +693,7 @@ async def refine_project(request: RefineRequest):
             app_name="deep_tech_sprint",
         )
         session = await _ensure_session(runner, user_id, session_id)
-
+        
         events: list[Any] = []
         async for event in runner.run_async(
             user_id=user_id,
@@ -596,7 +705,7 @@ async def refine_project(request: RefineRequest):
 
         outcome_text = _trim_to_summary(_extract_outcome(events))
         finished = datetime.now().isoformat()
-
+        
         # ── PERSIST REFINED SUMMARY ──
         try:
             save_project_context(project_key, "project_summary", outcome_text)
@@ -610,7 +719,7 @@ async def refine_project(request: RefineRequest):
             "started_at": started,
             "finished_at": finished,
         }
-
+        
         # Extract Workspace Link if updated
         ws_slug = _slug(project_key)
         if ws_slug in global_workspace_urls:
@@ -618,16 +727,22 @@ async def refine_project(request: RefineRequest):
 
         # Extract Calendar Links
         _cal = _extract_calendar_event_links(events, outcome_text)
-        if _cal:
-            body["calendar_event_links"] = _cal
-
+        if _cal: body["calendar_event_links"] = _cal
+        
+        # Extract Notion Info (if agent updated the board)
+        if _pipeline_created_notion_cards(events):
+             # Try to find the run page from memory or logs
+             _hub = _notion_hub_page_url()
+             if _hub:
+                 body["notion"] = {"hub_page_url": _hub}
+        
         # Save results to Firestore history as well
         try:
             log_run_history(
                 outcome_text[:500],
                 request.prompt,
                 project_key=project_key,
-                result_snapshot=body,
+                result_snapshot=body
             )
         except:
             pass
@@ -636,7 +751,7 @@ async def refine_project(request: RefineRequest):
         return JSONResponse(content=body)
 
     except Exception as e:
-        console.print(Rule(f"[bold red]REFINEMENT ERROR[/bold red]", style="red"))
+        console.print(Rule("[bold red]REFINEMENT ERROR[/bold red]", style="red"))
         console.print(f"[bold red]{e}[/bold red]")
         return JSONResponse(status_code=200, content={
             "status": "error",
@@ -661,50 +776,59 @@ async def download_workspace(filename: str):
     """Serve the zipped workspace directly from the ephemeral environment."""
     root_env = os.getenv("WORKSPACE_OUTPUT_DIR", "generated_workspaces").strip()
     root = Path(root_env).resolve()
-
+    
+    # Simple strict validation to prevent path traversal
     safe_name = re.sub(r"[^\w\.\-]", "", filename)
     file_path = root / safe_name
-
+    
     if not file_path.is_file() or not str(file_path).endswith(".zip"):
         return JSONResponse({"error": "File not found"}, status_code=404)
-
+        
     return FileResponse(
-        path=file_path,
-        filename=filename,
-        media_type="application/zip",
+        path=file_path, 
+        filename=filename, 
+        media_type="application/zip"
     )
+
+_FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
+# Starlette Mount matches /mcp/{path}; bare /mcp must redirect to /mcp/
+@app.api_route(
+    "/mcp",
+    methods=["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    include_in_schema=False,
+)
+async def _mcp_redirect_slash(request: Request) -> RedirectResponse:
+    q = request.url.query
+    return RedirectResponse(f"/mcp/{('?' + q) if q else ''}", status_code=307)
 
 
 # MCP over HTTP (Streamable HTTP) — mount before catch-all static files
 app.mount("/mcp", mcp_http_asgi)
 
-
 @app.get("/mcp")
 async def redirect_to_mcp():
     from fastapi.responses import RedirectResponse
-
     return RedirectResponse(url="/mcp/", status_code=307)
-
-
-_Frontend_DIR = Path(__file__).resolve().parent / "frontend"
 
 
 if _FRONTEND_DIR.is_dir():
     app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
 else:
-
     @app.get("/")
     async def index_redirect():
         return RedirectResponse(url="/api", status_code=307)
-
 
 if __name__ == "__main__":
     _port = int(os.environ.get("PORT", "8000"))
     _host = os.environ.get("HOST", "0.0.0.0")
     _url = f"http://127.0.0.1:{_port}"
-    print(f"Starting {_url}")
-    print(f"Docs: {_url}/docs")
+    console.print(f"[bold]Starting[/bold] [link={_url}]{_url}[/link]")
+    console.print(f"Docs: [link={_url}/docs]{_url}/docs[/link]")
     if _FRONTEND_DIR.is_dir():
-        print(f"UI: {_url}/ (same origin as API)")
-    print(f"MCP: {_url}/mcp/")
+        console.print(f"UI: [link={_url}/]{_url}/[/link] (same origin as API)")
+    console.print(
+        f"MCP: [link={_url}/mcp/]{_url}/mcp/[/link] "
+        f"({'Bearer + MCP_AUTH_TOKEN' if os.getenv('MCP_AUTH_TOKEN', '').strip() else 'no MCP_AUTH_TOKEN — open'})"
+    )
     uvicorn.run(app, host=_host, port=_port)
+

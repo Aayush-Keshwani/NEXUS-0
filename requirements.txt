@@ -1,5 +1,5 @@
-google-adk
-google-genai
+google-adk>=1.28.1
+google-genai>=2.0.0
 fastapi
 fastmcp>=2.0
 uvicorn[standard]

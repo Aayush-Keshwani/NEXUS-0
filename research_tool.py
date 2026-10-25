@@ -195,7 +195,8 @@ def search_arxiv(query: str, max_results: int | None = None) -> str:
         summary_el = ent.find(f"{_ATOM}summary")
         blurb = _text(summary_el)[:240] + ("…" if summary_el is not None and len(_text(summary_el)) > 240 else "")
 
-        lines.append(f"{i}. **{title}**")
+        lines.append(f"{resultIndex}. **{title}**")
+
         if published:
             lines.append(f"   Published: {published}")
         if auth_s:

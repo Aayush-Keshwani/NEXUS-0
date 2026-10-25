@@ -113,8 +113,14 @@ def _get_calendar_service():
     if _calendar_service is not None:
         return _calendar_service
 
-    token_path = "/secrets/token.json" if os.path.exists("/secrets/token.json") else "token.json"
-    if not os.path.exists(token_path):
+    _dir = os.path.dirname(os.path.abspath(__file__))
+    candidate_paths = [
+        "/secrets/token.json",
+        os.path.join(_dir, "token.json"),
+        os.path.abspath("token.json"),
+    ]
+    token_path = next((p for p in candidate_paths if os.path.exists(p)), None)
+    if not token_path:
         raise FileNotFoundError(
             "token.json not found. Run auth_setup.py first to authenticate."
         )

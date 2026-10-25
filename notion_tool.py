@@ -631,18 +631,22 @@ def _build_schema_from_database(
         date_n = parsed["date_name"]
 
     kind = parsed["status_api_kind"]
+    valid_options = []
     if status_n:
         raw = prop_schema.get(status_n, {})
         t = raw.get("type")
         if t == "status":
             kind = "status"
+            valid_options = [opt.get("name") for opt in raw.get("status", {}).get("options", []) if opt.get("name")]
         elif t == "select":
             kind = "select"
+            valid_options = [opt.get("name") for opt in raw.get("select", {}).get("options", []) if opt.get("name")]
 
     return {
         "title_name": title,
         "status_name": status_n,
         "status_api_kind": kind,
+        "status_options": valid_options,
         "date_name": date_n,
     }
 
@@ -720,8 +724,10 @@ def begin_notion_run_workspace(project_key: str, team_members: list[dict[str, st
     member_db_map: dict[str, str] = {}  # member_name -> kanban_database_id
 
     if team_members:
-        # ── Per-member sub-pages, each with its own Kanban DB ──
-        for member in team_members:
+        # ── Per-member sub-pages, each with its own Kanban DB (parallelized) ──
+        import concurrent.futures
+
+        def _setup_single_member(member):
             m_name = member.get("name", "Teammate")
             m_role = member.get("role", "Developer")
             member_page = _notion.pages.create(
@@ -752,7 +758,19 @@ def begin_notion_run_workspace(project_key: str, team_members: list[dict[str, st
                 },
             )
             m_db_id = _normalize_notion_id(m_db["id"])
-            member_db_map[m_name.lower().strip()] = m_db_id
+            return m_name.lower().strip(), m_db_id
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(team_members), 4)) as executor:
+                futures = [executor.submit(_setup_single_member, m) for m in team_members]
+                for f in concurrent.futures.as_completed(futures, timeout=3.5):
+                    try:
+                        k, v = f.result()
+                        member_db_map[k] = v
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         # Use the first member's DB as the default fallback
         db_id = next(iter(member_db_map.values()), None)
@@ -826,7 +844,10 @@ def begin_notion_run_workspace(project_key: str, team_members: list[dict[str, st
 def end_notion_run_workspace(reset_token: Token | None) -> None:
     _clear_request_env()
     if reset_token is not None:
-        _run_ctx.reset(reset_token)
+        try:
+            _run_ctx.reset(reset_token)
+        except Exception:
+            _run_ctx.set(None)
 
 
 def _get_member_db_id(member_name: str) -> str | None:
@@ -906,10 +927,28 @@ def create_kanban_card(
             tname: {"title": [{"text": {"content": title}}]},
         }
         if st_name:
+            valid_options = s.get("status_options", [])
+            mapped_status = status
+            if valid_options and status not in valid_options:
+                s_low = status.lower().replace("-", " ").strip()
+                for opt in valid_options:
+                    if opt.lower() == s_low:
+                        mapped_status = opt
+                        break
+                else:
+                    if any(w in s_low for w in ("not", "to do", "todo", "start", "backlog")):
+                        mapped_status = next((opt for opt in valid_options if any(w in opt.lower() for w in ("not", "to do", "todo", "start"))), valid_options[0])
+                    elif any(w in s_low for w in ("prog", "doing", "active", "wip")):
+                        mapped_status = next((opt for opt in valid_options if any(w in opt.lower() for w in ("prog", "doing", "active"))), valid_options[min(1, len(valid_options)-1)])
+                    elif any(w in s_low for w in ("done", "complete", "finish")):
+                        mapped_status = next((opt for opt in valid_options if any(w in opt.lower() for w in ("done", "complete"))), valid_options[-1])
+                    else:
+                        mapped_status = valid_options[0]
+
             if st_kind == "status":
-                properties[st_name] = {"status": {"name": status}}
+                properties[st_name] = {"status": {"name": mapped_status}}
             elif st_kind == "select":
-                properties[st_name] = {"select": {"name": status}}
+                properties[st_name] = {"select": {"name": mapped_status}}
 
         if deadline and dname:
             properties[dname] = {"date": {"start": deadline}}

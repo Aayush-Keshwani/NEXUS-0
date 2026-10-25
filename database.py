@@ -9,16 +9,26 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(script_dir, ".env")
+if os.path.exists(env_path):
+    load_dotenv(dotenv_path=env_path)
 load_dotenv()
 
 # Firebase init (once per process)
-cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-
-# If the env var is set but the file isn't in the container, remove it from env
-# to prevent GCP libraries (like Firestore) from crashing.
-if cred_path and not os.path.exists(cred_path):
+raw_cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or "serviceAccountKey.json"
+candidates = [
+    raw_cred_path,
+    os.path.join(script_dir, raw_cred_path),
+    os.path.join(script_dir, "serviceAccountKey.json"),
+    "serviceAccountKey.json",
+    os.path.abspath(raw_cred_path),
+]
+cred_path = next((p for p in candidates if p and os.path.exists(p)), None)
+if cred_path:
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = cred_path
+elif "GOOGLE_APPLICATION_CREDENTIALS" in os.environ:
     del os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
-    cred_path = None
 
 class MockFirestoreClient:
     def __init__(self):
@@ -46,6 +56,7 @@ if not firebase_admin._apps:
         else:
             firebase_admin.initialize_app()
         db = firestore.client()
+        print(f"🔥 ✅ Connected to live Google Cloud Firestore (Project: {cred.project_id if 'cred' in locals() and hasattr(cred, 'project_id') else 'active'})")
     except Exception as e:
         print(f"WARNING: [MOCK MODE] Firebase init failed: {e}. Switching to Mock Database.")
         db = MockFirestoreClient()

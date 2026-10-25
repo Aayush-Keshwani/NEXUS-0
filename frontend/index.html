@@ -4,12 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>R&D Autonomous System | Control</title>
-  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="stylesheet" href="styles.css?v=12" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@1,400;1,600;1,700&display=swap" rel="stylesheet" />
 </head>
-<body>
+<body class="dark-theme">
   <div class="bg-glows" aria-hidden="true">
     <div class="glow glow-1"></div>
     <div class="glow glow-2"></div>
@@ -24,31 +24,158 @@
         <span class="agent-thinking-dot agent-thinking-dot--c"></span>
       </div>
       <p class="agent-thinking-title">Agents are thinking…</p>
-      <p class="agent-thinking-sub">Synthesizing your mission — grab a coffee, this bit loves drama ☕✨</p>
+      <p class="agent-thinking-sub">Synthesizing mission parameters and generating execution plan.</p>
+    </div>
+  </div>
+
+  <!-- Goal Drift Gate Modal (Human-in-the-Loop Pre-Flight & Post-Flight Interceptor) -->
+  <div id="goal-drift-gate" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="glass-panel modal-card goal-gate-card" style="max-width: 760px; max-height: 90vh; overflow-y: auto;">
+      <div class="modal-top-bar" style="padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="brand-shield-box" style="width:32px;height:32px;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div>
+            <h3 style="margin:0;font-size:1.15rem;font-weight:700;color:#f87171;">Goal Drift Intervention Gate</h3>
+            <span style="font-size:0.75rem; color:var(--text-secondary);">PS5 Pre-Flight Interceptor · Drift Prevention & Invariant Protection</span>
+          </div>
+        </div>
+        <button class="modal-close" id="gate-close-btn" aria-label="Dismiss">&times;</button>
+      </div>
+
+      <div class="goal-gate-body" style="padding-top: 14px;">
+        <div class="goal-gate-metric-box" style="margin-bottom: 14px; padding: 12px 16px;">
+          <div class="goal-gate-score-chip" style="border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.1);">
+            <span class="gate-score-num" id="gate-score-value" style="color: #ef4444;">--%</span>
+            <span class="gate-score-label">Projected Alignment</span>
+          </div>
+          <div>
+            <p id="gate-status-text" style="font-weight: 600; color: #f87171; margin: 0 0 4px 0; font-size: 0.92rem;">
+              Critical Goal Drift Detected
+            </p>
+            <p id="gate-drift-reason" class="goal-gate-desc" style="margin:0; font-size:0.83rem; color:var(--text-secondary);">
+              The proposed refinement instruction diverges from your locked baseline goal and compromises core contract invariants.
+            </p>
+          </div>
+        </div>
+
+        <div class="goal-comparison-grid modal-three-col-grid">
+          <div class="modal-col-card">
+            <p class="editorial-micro-label">Locked baseline</p>
+            <p id="gate-original-goal" class="modal-col-text">Design and synthesize a 16-bit RISC processor core in Verilog.</p>
+          </div>
+          <div class="modal-col-card">
+            <p class="editorial-micro-label">Your proposal</p>
+            <p id="gate-current-state" class="modal-col-text">—</p>
+          </div>
+          <div class="modal-col-card modal-col-drift">
+            <p class="editorial-micro-label" style="color:#f87171;">Drift analysis</p>
+            <p id="gate-drift-analysis" class="modal-col-text" style="color:#f87171;">Core architecture and Verilog RTL would be dropped.</p>
+          </div>
+        </div>
+
+        <!-- AI Harmonized Aligned Prompt Option -->
+        <div id="gate-ai-aligned-box" class="gate-ai-box" style="background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+            <label style="font-weight: 600; font-size: 0.85rem; color: #60a5fa; display:flex; align-items:center; gap:6px;">
+              <span>AI Re-aligned Refinement (Preserves Baseline & Avoids Drift)</span>
+            </label>
+            <span style="font-size:0.72rem; color:var(--text-secondary);">Editable</span>
+          </div>
+          <textarea id="gate-ai-prompt" class="form-input" rows="3" style="width:100%; font-size:0.84rem; line-height:1.4; resize:vertical; background:rgba(15,23,42,0.6); color:#f1f5f9; padding:8px 10px;" placeholder="AI generating aligned prompt..."></textarea>
+          <p style="margin: 6px 0 0 0; font-size: 0.73rem; color: var(--text-secondary);">
+            AI harmonized your instruction into an integrated architectural sub-module, preserving all Verilog/core invariants.
+          </p>
+        </div>
+      </div>
+
+      <!-- The 3 Requested Options -->
+      <div class="goal-gate-actions" style="display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end; padding-top:12px; border-top:1px solid rgba(255,255,255,0.08);">
+        <!-- Option 3: Abort -->
+        <button id="gate-abort-btn" type="button" class="btn-subtle" style="padding:10px 16px; border:1px solid rgba(239, 68, 68, 0.3); color:#fca5a5; font-size:0.85rem;">
+          Abort Refinement
+        </button>
+
+        <!-- Option 1: Proceed Anyway (Intentional Scope Evolution) -->
+        <button id="gate-proceed-drift-btn" type="button" class="btn-subtle" style="padding:10px 16px; border:1px solid rgba(245, 158, 11, 0.4); background:rgba(245, 158, 11, 0.1); color:#fbbf24; font-size:0.85rem;">
+          Proceed Anyway (Intentional Evolution)
+        </button>
+
+        <!-- Option 2: Run AI Aligned Prompt -->
+        <button id="gate-use-ai-prompt-btn" type="button" class="launch-btn" style="padding:10px 18px; font-size:0.85rem; background:linear-gradient(135deg, #10b981, #059669); color:#ffffff; font-weight:600;">
+          Run AI Aligned Prompt
+        </button>
+
+        <!-- Hidden legacy buttons for compatibility with post-run gate callbacks if triggered -->
+        <button id="gate-autoreground-btn" class="hidden"></button>
+        <button id="gate-approve-btn" class="hidden"></button>
+        <button id="gate-reanchor-btn" class="hidden"></button>
+      </div>
     </div>
   </div>
 
   <div class="dashboard-layout" id="page-root">
-    <!-- Sidebar -->
+    <!-- Sidebar matching ui-ux-redesign -->
     <aside class="sidebar">
-      <div class="sidebar-brand" style="justify-content: space-between;">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <div class="brand-hex">Σ</div>
-          <span class="brand-name">R&D System</span>
+      <div class="sidebar-brand">
+        <div class="brand-identity-row">
+          <div class="brand-shield-box">
+            <svg class="brand-shield-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="m9 12 2 2 4-4"/>
+            </svg>
+          </div>
+          <div>
+            <p class="brand-name">GROUNDING</p>
+            <p class="brand-sub">AUTONOMOUS R&D</p>
+          </div>
         </div>
-        <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle Theme">☀️</button>
+        <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle Theme" title="Toggle Light/Dark Theme">
+          <svg class="theme-toggle-svg" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+        </button>
       </div>
       
+      <p class="sidebar-micro-label">Workspace</p>
       <nav class="sidebar-nav">
         <button class="nav-item active" data-tab="run-pipeline" title="System Control">
-          <span class="nav-label">Control</span>
+          <svg class="nav-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <span class="nav-label">Control center</span>
+        </button>
+        <button class="nav-item" data-tab="goal-tracking" title="Goal Tracking & Lineage">
+          <svg class="nav-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          <span class="nav-label">Goal tracking</span>
         </button>
       </nav>
+
+      <div class="sidebar-projects-section">
+        <p class="sidebar-micro-label">Projects</p>
+        <div class="sidebar-project-list" id="sidebar-projects-list">
+          <button type="button" class="sidebar-project-btn active" data-pk="risc_processor_core">
+            <span class="sb-project-name"><span class="sb-dot live"></span>risc_processor_core</span>
+            <span class="sb-project-meta">LIVE / 3 SESSIONS · 93.8%</span>
+          </button>
+          <button type="button" class="sidebar-project-btn" data-pk="quantum_qubit_cryo_ctrl">
+            <span class="sb-project-name"><span class="sb-dot"></span>quantum_qubit_cryo_ctrl</span>
+            <span class="sb-project-meta">4 SESSIONS · 88.4%</span>
+          </button>
+          <button type="button" class="sidebar-project-btn" data-pk="crispr_cas13_rna_sensor">
+            <span class="sb-project-name"><span class="sb-dot"></span>crispr_cas13_rna_sensor</span>
+            <span class="sb-project-meta">3 SESSIONS · 76.1%</span>
+          </button>
+          <button type="button" class="sidebar-project-btn" data-pk="gan_rf_amplifier_5g">
+            <span class="sb-project-name"><span class="sb-dot"></span>gan_rf_amplifier_5g</span>
+            <span class="sb-project-meta">4 SESSIONS · 91.2%</span>
+          </button>
+        </div>
+      </div>
 
       <!-- Past Runs History -->
       <div class="past-runs-section">
         <button class="past-runs-toggle" id="past-runs-toggle" aria-expanded="false">
-          <span class="past-runs-label">📂 Past Runs</span>
+          <span class="past-runs-label">Past Runs</span>
           <span class="past-runs-chevron" id="past-runs-chevron">›</span>
         </button>
         <div class="past-runs-list hidden" id="past-runs-list">
@@ -57,24 +184,28 @@
       </div>
 
       <div class="sidebar-footer">
+        <div class="firestore-status-row">
+          <span class="status-dot-emerald"></span>
+          <span>Firestore connected</span>
+        </div>
+        <p class="firestore-sub-label">goal_state / immutable layer</p>
         <div id="ist-clock" class="sidebar-clock">--:--:-- IST</div>
       </div>
     </aside>
 
     <!-- Main Content -->
     <main class="main-content">
-      <!-- Top Header -->
+      <!-- Top Header matching ui-ux-redesign -->
       <header class="main-header">
         <div class="header-breadcrumb">
-          <span class="breadcrumb-root">Home</span>
-          <span class="breadcrumb-sep">/</span>
-          <span id="active-view-name">Control</span>
+          <span class="editorial-micro-label" style="opacity:0.6;">R&D SYSTEM /</span>
+          <span id="active-view-name" class="header-project-name">risc_processor_core</span>
         </div>
         
-        <div class="header-title-wrap">
-          <h1 class="app-title">R&D Autonomous System</h1>
+        <div class="header-status-area" style="display:flex; align-items:center; gap:16px;">
+          <span class="operational-badge"><span class="operational-dot"></span> SYSTEM OPERATIONAL</span>
           <div class="session-badge">
-            <span class="badge-label">Active Session:</span>
+            <span class="badge-label">Active:</span>
             <input type="text" id="active-project-key" value="idle" readonly />
           </div>
         </div>
@@ -82,21 +213,20 @@
 
       <!-- View Area -->
       <div class="view-viewport">
-        
-        <!-- Command View -->
+        <!-- Command View (Clean Editorial Control Center) -->
         <section id="run-pipeline-view" class="view-layer active">
-          <div class="command-grid">
-            <!-- Config Column -->
-            <div class="glass-panel config-panel">
-              <div class="panel-header">
-                <h3>Sequence Configuration</h3>
-                <p>Define project scope and agent parameters</p>
+          <div class="control-config-layout">
+            <div class="glass-panel config-panel editorial-card" style="max-width: 980px; margin: 0 auto;">
+              <div class="editorial-panel-header">
+                <p class="editorial-micro-label">System Control / Sequence Launch</p>
+                <h3 class="editorial-section-title">Sequence Configuration</h3>
+                <p class="editorial-subline-sm">Define project scope, execution deadline, and agent team parameters</p>
               </div>
               
-              <form id="pipeline-form" class="command-form" novalidate>
+              <form id="pipeline-form" class="command-form" novalidate style="margin-top:16px;">
                 <div class="form-group">
                   <label class="form-label">Mission Description</label>
-                  <textarea id="description" name="description" class="form-input form-textarea" rows="5" placeholder="Describe the R&D goal..."></textarea>
+                  <textarea id="description" name="description" class="form-input form-textarea" rows="4" placeholder="Describe the R&D goal..."></textarea>
                 </div>
 
                 <div class="form-row">
@@ -113,14 +243,14 @@
                 <!-- Team Configuration -->
                 <div class="team-config-section">
                   <div class="team-toggle-row">
-                    <label class="form-label">Team Configuration</label>
+                    <label class="form-label" style="margin:0;">Team Configuration</label>
                     <label class="toggle-switch">
                       <input type="checkbox" id="team-toggle" />
                       <span class="toggle-slider"></span>
                     </label>
                   </div>
 
-                  <div id="team-config-body" class="team-config-body hidden">
+                  <div id="team-config-body" class="team-config-body hidden" style="margin-top:14px;">
                     <div class="form-group">
                       <label class="form-label">Number of Teammates</label>
                       <input id="num-teammates" type="number" class="form-input" min="1" max="10" value="2" />
@@ -128,126 +258,28 @@
                     <div id="team-members-container" class="team-members-container">
                       <!-- Dynamically generated member rows -->
                     </div>
-                    <button type="button" id="generate-member-rows-btn" class="generate-rows-btn">Generate Member Fields</button>
+                    <button type="button" id="generate-member-rows-btn" class="editorial-btn-subtle" style="margin-top:8px;">Generate Member Fields</button>
                   </div>
                 </div>
 
                 <div id="form-status" class="status-msg"></div>
 
-                <button type="submit" class="launch-btn" id="submit-btn">
+                <button type="submit" class="launch-btn" id="submit-btn" style="margin-top:12px;">
                   <span class="btn-text">Initiate R&D Sequence</span>
                   <div class="btn-shimmer"></div>
                 </button>
                 
-                <p id="pipeline-wait-note" class="wait-note hidden">Agents are building artifacts — larger scopes often take 5–10 minutes.</p>
+                <p id="pipeline-wait-note" class="wait-note hidden">Agents are synthesizing artifacts. Larger scopes take 5 to 10 minutes.</p>
               </form>
-            </div>
-
-            <!-- Visualizer Column (Live Workflow) -->
-            <div class="glass-panel visualizer-panel">
-              <div class="workflow-stage" id="workflow-stage">
-                <header class="workflow-header">
-                  <div class="workflow-title">LIVE EXECUTION GRAPH</div>
-                  <div class="workflow-controls">
-                    <span class="status-badge" id="execution-status">IDLE</span>
-                  </div>
-                </header>
-
-                <div id="artifact-build-banner" class="artifact-build-banner hidden" role="status" aria-live="polite">
-                  <span class="artifact-build-banner__icon" aria-hidden="true">⚙️</span>
-                  <div class="artifact-build-banner__text">
-                    <strong>Building artifacts</strong>
-                    <span class="artifact-build-banner__sub">Notion pages and calendar blocks can take <strong>5–10 minutes</strong> on bigger projects — safe to leave this tab open.</span>
-                  </div>
-                </div>
-
-                <div class="workflow-graph-scroll">
-                  <div class="workflow-canvas">
-                  <!-- Layer 1: Inputs -->
-                  <div class="workflow-column">
-                    <div class="workflow-node" id="wf-receive">
-                      <div class="node-icon">📥</div>
-                      <div class="node-content">
-                        <span class="node-title">Receive Query</span>
-                        <span class="node-meta">Awaiting Input...</span>
-                      </div>
-                      <div class="node-status-icon"></div>
-                    </div>
-                    <div class="workflow-node" id="wf-parse">
-                      <div class="node-icon">🧠</div>
-                      <div class="node-content">
-                        <span class="node-title">Parse Intent</span>
-                        <span class="node-meta">NLP Engine</span>
-                      </div>
-                      <div class="node-status-icon"></div>
-                    </div>
-                  </div>
-
-                  <!-- Connectors SVG -->
-                  <svg class="workflow-svg">
-                    <path class="wf-link" id="link-1" d="" />
-                    <path class="wf-link" id="link-2" d="" />
-                    <path class="wf-link" id="link-3" d="" />
-                    <path class="wf-link" id="link-4" d="" />
-                    <path class="wf-link" id="link-5" d="" />
-                    <path class="wf-link" id="link-6" d="" />
-                  </svg>
-
-                  <!-- Layer 2: Core Processing -->
-                  <div class="workflow-column">
-                    <div class="workflow-node node-wide" id="wf-orchestrate">
-                      <div class="node-icon">🕸️</div>
-                      <div class="node-content">
-                        <span class="node-title">Agent Orchestration</span>
-                        <span class="node-meta" id="orchestrate-meta">Idle</span>
-                      </div>
-                      <div class="node-status-icon"></div>
-                    </div>
-                  </div>
-
-                  <!-- Layer 3: Agents -->
-                  <div class="workflow-column">
-                    <div class="workflow-node" id="wf-research">
-                      <div class="node-icon">🔍</div>
-                      <div class="node-content">
-                        <span class="node-title">Research Agent</span>
-                        <span class="node-meta">Data Scraper</span>
-                      </div>
-                      <div class="node-status-icon"></div>
-                    </div>
-                    <div class="workflow-node" id="wf-architect">
-                      <div class="node-icon">👔</div>
-                      <div class="node-content">
-                        <span class="node-title">Tech Lead</span>
-                        <span class="node-meta">Design Engine</span>
-                      </div>
-                      <div class="node-status-icon"></div>
-                    </div>
-                  </div>
-
-                  <!-- Layer 4: Finalization -->
-                  <div class="workflow-column">
-                    <div class="workflow-node" id="wf-synthesize">
-                      <div class="node-icon">✨</div>
-                      <div class="node-content">
-                        <span class="node-title">Synthesize</span>
-                        <span class="node-meta">Building Artifacts</span>
-                      </div>
-                      <div class="node-status-icon"></div>
-                    </div>
-                  </div>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
           
           <!-- Chat Input Area -->
-          <div class="chat-input-area">
+          <div class="chat-input-area" style="max-width: 980px; margin: 24px auto 0;">
             <form id="chat-form" class="chat-form">
               <input type="text" id="chat-input" class="chat-input" placeholder="Type a command to /refine the project..." autocomplete="off" />
               <button type="submit" class="chat-submit-btn" aria-label="Send message">
-                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
               </button>
             </form>
           </div>
@@ -261,7 +293,7 @@
               </div>
               <div id="results-banner" class="results-banner"></div>
               <p class="results-spam-note" role="note">
-                📬 Calendar invites from Google can land in <strong>Spam</strong> or <strong>Promotions</strong> — peek there if teammates don’t see their invite.
+                Calendar invites from Google can land in <strong>Spam</strong> or <strong>Promotions</strong> — please check there if teammates do not see their invite.
               </p>
 
               <div class="modal-scroll-area">
@@ -294,28 +326,159 @@
             </div>
           </div>
         </section>
+
+        <!-- Goal Tracking View matching ui-ux-redesign -->
+        <section id="goal-tracking-view" class="view-layer hidden">
+          <div class="command-grid">
+            <!-- Left: Goal Health Monitor -->
+            <div class="glass-panel config-panel editorial-card">
+              <div class="editorial-panel-header">
+                <p class="editorial-micro-label">Goal Health / Live Control</p>
+                <h3 class="editorial-section-title">Goal Health Monitor</h3>
+                <p class="editorial-subline-sm">Track alignment across multi-session horizons</p>
+              </div>
+
+              <div class="goal-monitor-controls" style="margin-top:14px;">
+                <div class="form-group">
+                  <p class="editorial-micro-label" style="margin-bottom:6px;">Target Workspace Project</p>
+                  <div style="display:flex;gap:8px;">
+                    <input type="text" id="goal-project-key" class="form-input" placeholder="e.g. project_demo" />
+                    <button id="goal-load-btn" type="button" class="editorial-action-btn-primary" style="padding:10px 18px;white-space:nowrap;">Load</button>
+                  </div>
+                  <div class="project-quick-chips" id="project-quick-chips" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;">
+                    <button type="button" class="project-chip active" data-pk="risc_processor_core">risc_processor_core <span class="chip-badge">Live S3</span></button>
+                    <button type="button" class="project-chip" data-pk="quantum_qubit_cryo_ctrl">quantum_qubit_cryo_ctrl <span class="chip-badge">4 S</span></button>
+                    <button type="button" class="project-chip" data-pk="crispr_cas13_rna_sensor">crispr_cas13_rna_sensor <span class="chip-badge">3 S</span></button>
+                    <button type="button" class="project-chip" data-pk="aerospace_hypersonic_scramjet">aerospace_hypersonic_scramjet <span class="chip-badge">4 S</span></button>
+                    <button type="button" class="project-chip" data-pk="solid_state_battery_electrolyte">solid_state_battery_electrolyte <span class="chip-badge">3 S</span></button>
+                    <button type="button" class="project-chip" data-pk="gan_rf_amplifier_5g">gan_rf_amplifier_5g <span class="chip-badge">4 S</span></button>
+                  </div>
+                </div>
+
+                <!-- Live Refinement Control matching ui-ux-redesign -->
+                <div class="editorial-refine-box" style="margin-top:14px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.08);">
+                  <div class="flex-between" style="margin-bottom:8px;">
+                    <p class="editorial-micro-label">Refine with guardrails</p>
+                    <span class="editorial-micro-label" style="color:var(--text-accent);">AI GUARDED</span>
+                  </div>
+                  <div style="display:flex; gap:8px;">
+                    <input type="text" id="control-refine-input" class="form-input" placeholder="e.g. Add 2-bit UART peripheral, downscale ALU..." />
+                    <button id="control-refine-btn" type="button" class="editorial-action-btn-primary" style="padding:10px 18px; white-space:nowrap;">
+                      Refine
+                    </button>
+                  </div>
+                  <p class="editorial-micro-label-sub" style="margin-top:8px;">
+                    PRE-FLIGHT CHECK → INVARIANT MATRIX → EXECUTION
+                  </p>
+                </div>
+              </div>
+
+              <!-- Score Card matching ui-ux-redesign -->
+              <div id="goal-score-card" class="editorial-inner-card goal-score-card" style="margin-top:14px;">
+                <div class="flex-between" style="align-items:flex-start;">
+                  <div>
+                    <p class="editorial-micro-label">Goal health / live</p>
+                    <div class="editorial-score-hero">
+                      <span class="editorial-score-big" id="goal-current-score">76.1<span class="editorial-score-pct">%</span></span>
+                    </div>
+                  </div>
+                  <span class="editorial-drift-badge" id="goal-status-badge">ON TRACK</span>
+                </div>
+                <!-- Visual progress bar with 70% threshold mark -->
+                <div class="editorial-progress-track" style="margin-top:10px;">
+                  <div class="editorial-progress-bar" id="goal-progress-bar" style="width: 76.1%;"></div>
+                </div>
+                <div class="editorial-progress-legend" style="margin-top:6px;">
+                  <span>70% threshold</span>
+                  <span id="goal-delta-pts">+6.1 pts</span>
+                </div>
+                <div class="goal-meta-grid" id="goal-meta-info" style="margin-top:14px;">
+                  <!-- Dynamically populated -->
+                </div>
+              </div>
+
+              <!-- Goal Contract Invariant Matrix matching ui-ux-redesign -->
+              <div id="goal-invariants-card" class="editorial-inner-card invariants-card hidden" style="margin-top:14px;">
+                <div class="flex-between" style="margin-bottom:12px;">
+                  <p class="editorial-micro-label">Contract invariant matrix</p>
+                  <span id="inv-contract-status" class="editorial-inv-count">3 / 3 PRESERVED</span>
+                </div>
+                <div id="inv-matrix-list" class="editorial-inv-list">
+                  <!-- Invariant Checklist generated by JS -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Goal Lineage DAG Tree & Decay Curve matching ui-ux-redesign -->
+            <div class="glass-panel visualizer-panel editorial-card">
+              <div class="editorial-panel-header">
+                <p class="editorial-micro-label">Goal lineage / time machine</p>
+                <h3 class="editorial-section-title">Sessions that remember why.</h3>
+                <p class="editorial-subline-sm">Scope evolution: Baseline · Drift · Intentional · Re-anchor · [Rollback]</p>
+              </div>
+
+              <div id="goal-lineage-tree" class="goal-lineage-container" style="margin-top:14px;">
+                <p class="goal-tree-empty">Enter a project key or select a showcase project above to view lineage DAG.</p>
+              </div>
+
+              <div class="editorial-panel-header chart-panel-header" style="margin-top:24px; border-top:1px solid rgba(255,255,255,0.08); padding-top:16px;">
+                <div class="flex-between" style="width:100%; flex-wrap:wrap; gap:8px;">
+                  <div>
+                    <p class="editorial-micro-label">Alignment Trajectory Arena / PS5 Benchmark</p>
+                    <h3 class="editorial-section-title" style="margin:2px 0 0 0; font-size:1.15rem; font-weight:700;">Uncontrolled Context Decay vs Active Invariant Tracking</h3>
+                    <p class="editorial-subline-sm" style="margin-top:3px;">Compounding loss in working memory vs persistent Firestore goal layer</p>
+                  </div>
+                  <!-- Dual-Track Chart Legend -->
+                  <div id="chart-legend-box" class="editorial-legend">
+                    <span class="text-track-a">— Track A: Without Tracking (Decay)</span>
+                    <span class="text-track-b">— Track B: With Invariant Tracking (Guarded)</span>
+                  </div>
+                </div>
+              </div>
+              <div class="chart-canvas-box" style="margin-top:12px; width: 100%;">
+                <canvas id="goal-decay-chart" style="width: 100%; height: 280px; display: block;"></canvas>
+              </div>
+            </div>
+
+            <!-- Cryptographic Proof & Blockchain Goal Ledger matching ui-ux-redesign -->
+            <div class="glass-panel blockchain-panel editorial-card">
+              <div class="editorial-blockchain-header">
+                <div class="flex-between" style="flex-wrap:wrap; gap:12px; margin-bottom:12px;">
+                  <div>
+                    <p class="editorial-micro-label">Cryptographic proof / blockchain goal ledger</p>
+                    <h3 class="editorial-section-title">A chain of evidence, not a status badge.</h3>
+                  </div>
+                  <div style="display: flex; gap: 8px; align-items: center; flex-wrap:wrap;">
+                    <span id="blockchain-audit-badge" class="editorial-verified-badge">CRYPTOGRAPHICALLY VERIFIED</span>
+                    <button id="verify-chain-btn" type="button" class="editorial-btn-subtle">
+                      <span>Audit Chain Integrity</span>
+                    </button>
+                    <button id="toggle-comparison-view-btn" type="button" class="editorial-btn-subtle">
+                      <span>With vs Without Tracking</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Live Blockchain Blocks Strip -->
+              <div id="blockchain-blocks-container" class="blockchain-blocks-strip">
+                <p class="goal-tree-empty">Mining cryptographic blocks for active project...</p>
+              </div>
+
+              <!-- With vs Without Multi-Session Comparison Drawer -->
+              <div id="blockchain-comparison-container" class="blockchain-comparison-box hidden">
+                <!-- Dynamically populated comparison table & metrics -->
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
 
-      <!-- Telemetry Footer -->
-      <footer class="telemetry-bar">
-        <div class="telemetry-header">
-          <div class="telemetry-title">
-            <span class="pulse-icon"></span>
-            LIVE AGENT TELEMETRY
-          </div>
-        </div>
-        <div class="telemetry-body" id="terminal-log">
-          <div class="log-entry">
-            <span class="log-time">--:--:--</span>
-            <span class="log-tag tag-sys">[SYSTEM]</span>
-            <span class="log-msg">Ready.</span>
-          </div>
-        </div>
-      </footer>
+
     </main>
   </div>
 
   <script>window.API_BASE = "";</script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

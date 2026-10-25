@@ -151,7 +151,8 @@ Copy **`.env.example`** → **`.env`**. Highlights:
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to service account JSON |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | Vertex region (e.g. `us-central1`) |
 | `GOOGLE_GENAI_USE_VERTEXAI` | `1` for Vertex |
-| `ADK_MODEL` | e.g. `gemini-2.5-flash` |
+| `ADK_MODEL` | Default `gemini-2.5-flash` (also supports `gemini-2.5-pro`, `gemini-2.5-flash-lite`, `gemini-2.0-flash`) |
+| `ADK_THINKING_BUDGET` | `0` = fast/disabled, `1024`+ = extended reasoning budget for Gemini 2.5 |
 | `ADK_LITE` | Leaner prompts / fewer redundant tools (`1` typical) |
 | `NOTION_TOKEN`, `NOTION_DATABASE_ID`, `NOTION_RUNS_PARENT_PAGE_ID`, `NOTION_RUN_USE_KANBAN_DB` | Notion layout |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Must match the OAuth client used for **`token.json`** |
@@ -272,4 +273,3 @@ Replace placeholders; prefer Secret Manager for long-lived secrets in production
 
 Multi-agent planning with integrated tools, durable context, and a production-style API plus operator UI.
 
-# NEXUS-0
